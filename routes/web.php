@@ -14,24 +14,33 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\Facades\URL;
+use App\Models\User;
+use App\Models\ChatRoomMessage;
 
 Route::get('/', function () {
     return view('mainpage');
 })->name('home');
 
-Route::get('/send-message', function () {
+Route::post('/send-message', function (Request $request) {
     // Sending a simple object instead of a model
-    $message = [
-        'user' => 'John Doe',
-        'text' => 'Hello from Laravel Reverb!',
-        'timestamp' => now()->toDateTimeString(),
+    $messageContent = $request->input('message');
+    $messageData = [
+        'user' => auth()->user(),
+        'message' => $messageContent,
+        'room_id' => $request->input('room_id'),
+        'sent_at' => $request->input('sent_at', now()->toDateTimeString()),
     ];
 
-    // Fire the event
-    broadcast(new MessageSent($message));
+    // Broadcast the message to the chatroom channel
+    broadcast(new MessageSent($messageData))->toOthers();
+    $chatroomMessage = new ChatRoomMessage();
+    $chatroomMessage->room_id = $request->input('room_id');
+    $chatroomMessage->user_id = auth()->id();
+    $chatroomMessage->message = $messageContent;
+    $chatroomMessage->save();
 
-    return response()->json(['status' => 'Message broadcasted!']);
-});
+    return response()->json(['status' => 'Message broadcasted!', 'success' => true]);
+})->name('rooms.sendMessage');
 
 Route::get('/messages', function () {
     return view('messages');
@@ -129,7 +138,8 @@ Route::post('rooms/store', function (\Illuminate\Http\Request $request) {
 
 Route::get('rooms/show/{room}', function (\App\Models\Room $room) {
     $users = $room->users()->get();
-    return view('rooms.show', compact('room', 'users'));
+    $messages = $room->messages()->with('user')->orderBy('sent_at', 'asc')->get();
+    return view('rooms.show', compact('room', 'users', 'messages'));
 })->name('rooms.show');
 
 

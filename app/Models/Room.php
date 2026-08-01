@@ -22,4 +22,9 @@ class Room extends Model
     {
         return $this->hasMany(RoomInvitation::class, 'room_id');
     }
+
+    public function messages()
+    {
+        return $this->hasMany(ChatRoomMessage::class, 'room_id');
+    }
 }

@@ -32,7 +32,7 @@ class MessageSent implements ShouldBroadcast
     public function broadcastOn(): array
     {
         return [
-            new Channel('public-messages'),
+            new Channel('chat-room.' . $this->message['room_id']),
         ];
     }
 
