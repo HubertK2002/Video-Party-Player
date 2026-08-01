@@ -3,10 +3,21 @@
 use Illuminate\Support\Facades\Route;
 use App\Events\MessageSent;
 use App\Models\Room;
+use App\Models\RoomInvitation;
+use App\Models\RoomUser;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redirect;
+use Illuminate\Support\Facades\View;
+use Illuminate\Support\Facades\URL;
 
 Route::get('/', function () {
     return view('mainpage');
-});
+})->name('home');
 
 Route::get('/send-message', function () {
     // Sending a simple object instead of a model
@@ -120,3 +131,98 @@ Route::get('rooms/show/{room}', function (\App\Models\Room $room) {
     $users = $room->users()->get();
     return view('rooms.show', compact('room', 'users'));
 })->name('rooms.show');
+
+
+Route::get('rooms/generate-invite-link/{room}', function (\App\Models\Room $room) {
+    $user = auth()->user();
+    if ($room->owner_id !== $user->id) {
+        return redirect()->route('rooms.show', $room->id)->with('error', 'Nie masz uprawnień do wygenerowania linku do zaproszenia.');
+    }
+
+    // Generate a unique invite link
+    $inviteLink = route('rooms.join', ['room' => $room->id, 'token' => \Illuminate\Support\Str::random(32)]);
+    $invitation = new \App\Models\RoomInvitation();
+    $invitation->room_id = $room->id;
+    $invitation->invitation_code = \Illuminate\Support\Str::random(32);
+    $invitation->save();
+
+    return redirect()->route('rooms.show', $room->id)->with('success', 'Link do zaproszenia został wygenerowany pomyślnie!');
+})->name('rooms.generateInviteLink');
+
+Route::get('rooms/join/{room}/{token}', function (\App\Models\Room $room, $token) {
+    // Here you can implement logic to validate the token if needed
+    if($room->invitations()->where('invitation_code', $token)->doesntExist()) {
+        return redirect()->route('rooms.index')->with('error', 'Nieprawidłowy token zaproszenia.');
+    }
+    
+    $user = auth()->user();
+    if (!$user) {
+        return redirect()->route('login')->with('error', 'Musisz być zalogowany, aby dołączyć do pokoju.');
+    }
+
+    // Check if the user is already a member of the room
+    if ($room->users()->where('user_id', $user->id)->exists()) {
+        return redirect()->route('rooms.show', $room->id)->with('info', 'Jesteś już członkiem tego pokoju.');
+    }
+
+    // Add the user to the room
+    $roomUser = new \App\Models\RoomUser();
+    $roomUser->room_id = $room->id;
+    $roomUser->user_id = $user->id;
+    $roomUser->save();
+
+    return redirect()->route('rooms.show', $room->id)->with('success', 'Dołączyłeś do pokoju pomyślnie!');
+})->name('rooms.join');
+
+Route::get('rooms/invitations/{room}', function (\App\Models\Room $room) {
+    $user = auth()->user();
+    if ($room->owner_id !== $user->id) {
+        return redirect()->route('rooms.show', $room->id)->with('error', 'Nie masz uprawnień do przeglądania zaproszeń do tego pokoju.');
+    }
+
+    $invitations = $room->invitations()->get();
+    return view('rooms.invitations', compact('room', 'invitations'));
+})->name('rooms.invitations');
+
+Route::post('rooms/generateInvitation/{room}', function (\App\Models\Room $room) {
+    $user = auth()->user();
+
+    if ($room->owner_id !== $user->id) {
+        return error()->json(['error' => 'Nie masz uprawnień do generowania zaproszeń do tego pokoju.'], 403);
+    }
+
+    $user = auth()->user();
+
+    if ($room->owner_id !== $user->id) {
+        return error()->json(['error' => 'Nie masz uprawnień do generowania zaproszeń do tego pokoju.'], 403);
+    }
+
+    // Generate a unique invitation code
+    $invitationCode = \Illuminate\Support\Str::random(32);
+
+    // Create a new RoomInvitation
+    $invitation = new \App\Models\RoomInvitation();
+    $invitation->room_id = $room->id;
+    $invitation->invitation_code = $invitationCode;
+    $invitation->save();
+
+    return json_encode(['success' => true, 'invitation_code' => $invitationCode]);
+})->name('rooms.generateInvitation');
+
+Route::delete('rooms/deleteInvitation/{room}/{invitation}', function (\App\Models\Room $room, \App\Models\RoomInvitation $invitation) {
+    $user = auth()->user();
+
+    if ($room->owner_id !== $user->id) {
+        return redirect()->route('rooms.show', $room->id)->with('error', 'Nie masz uprawnień do usuwania zaproszeń do tego pokoju.');
+    }
+
+    // Check if the invitation belongs to the room
+    if ($invitation->room_id !== $room->id) {
+        return redirect()->route('rooms.show', $room->id)->with('error', 'To zaproszenie nie należy do tego pokoju.');
+    }
+
+    // Delete the invitation
+    $invitation->delete();
+
+    return redirect()->route('rooms.invitations', $room->id)->with('success', 'Zaproszenie zostało usunięte pomyślnie!');
+})->name('rooms.deleteInvitation');

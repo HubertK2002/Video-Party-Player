@@ -7,6 +7,7 @@
 	@vite(['resources/js/app.js']) {{-- Load JS --}}
 	</head>
 <body>
+	@if (Auth::user() == $room->owner)
 	<p>Zalogowany użytkownik: {{ Auth::user()->name }}, ID: {{ Auth::user()->id }}</p>
 	<h1 class="text-3xl font-bold mb-4">Pokój: {{ $room->name }}</h1>
 	<p class="text-lg">Właściciel: {{ $room->owner->name }}</p>
@@ -17,5 +18,7 @@
 			<li>{{ $user->name }}, {{$user->id}}</li>
 		@endforeach
 	</ul>
+	<a href="{{ route('rooms.invitations', $room->id) }}" class="btn btn-primary mt-4">Zaproszenia do pokoju</a>
+	@endif
 	<a href="{{ route('rooms.index') }}" class="btn btn-primary mt-4">Powrót do listy pokoi</a>
 </body>

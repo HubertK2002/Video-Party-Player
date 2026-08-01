@@ -17,4 +17,9 @@ class Room extends Model
     {
         return $this->belongsToMany(User::class, 'room_users', 'room_id', 'user_id');
     }
+
+    public function invitations()
+    {
+        return $this->hasMany(RoomInvitation::class, 'room_id');
+    }
 }

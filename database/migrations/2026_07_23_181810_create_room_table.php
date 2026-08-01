@@ -27,8 +27,11 @@ return new class extends Migration
         });
 
         Schema::create('room_invitations', function (Blueprint $table) {
+            $table->id();
             $table->foreignId('room_id')->constrained('rooms')->onDelete('cascade');
             $table->string('invitation_code')->unique();
+            $table->timestamps();
+            $table->timestamp('expires_at')->nullable();
         });
     }
 

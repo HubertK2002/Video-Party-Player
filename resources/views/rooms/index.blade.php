@@ -23,7 +23,11 @@
 				</tr>
 			</table>
 		@endforeach
-	<a href="{{ route('rooms.create') }}" class="btn btn-primary mt-4">Utwórz nowy pokój</a><br>
-	<a href="{{ route('rooms.owned') }}" class="btn btn-primary mt-4">Pokoje, które posiadasz</a>
+	@auth
+		<a href="{{ route('rooms.create') }}" class="btn btn-primary mt-4">Utwórz nowy pokój</a><br>
+		<a href="{{ route('rooms.owned') }}" class="btn btn-primary mt-4">Pokoje, które posiadasz</a><br>
+	@endauth
+	<a href="{{ route('rooms.index') }}" class="btn btn-primary mt-4">Odśwież listę pokoi</a><br>
+	<a href="{{ route('home') }}" class="btn btn-primary mt-4">Powrót do strony głównej</a>
 </body>
 </html>
