@@ -19,6 +19,21 @@
 		}
 	</style>
 <body>
+	@if (isset($error))
+		<div class="alert alert-danger">
+			{{ $error }}
+		</div>
+	@endif
+	@if (session('error'))
+    <div class="alert alert-danger">
+        {{ session('error') }}
+    </div>
+	@endif
+	@if (session('success'))
+		<div class="alert alert-success">
+			{{ session('success') }}
+		</div>
+	@endif
 	@if (Auth::user() == $room->owner)
 	<p>Zalogowany użytkownik: {{ Auth::user()->name }}, ID: {{ Auth::user()->id }}</p>
 	<h1 class="text-3xl font-bold mb-4">Pokój: {{ $room->name }}</h1>
@@ -45,6 +60,28 @@
 			<button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mt-2">Wyślij</button>
 		</form>
 	<a href="{{ route('rooms.index') }}" class="btn btn-primary mt-4">Powrót do listy pokoi</a>
+	@if($fileExists)
+		@if($watchStatus === 'active')
+			<p class="text-green-500 mt-4">Transmisja jest aktywna. <a href="{{ route('rooms.watch', $room->id) }}" class="btn btn-primary">Dołącz</a></p>
+		@else
+			<p class="text-red-500 mt-4">Rozpocznij transmisję <a href="{{ route('rooms.startStream', $room->id) }}" class="btn btn-primary">Rozpocznij</a></p>
+		@endif
+		<h2>Zmień video</h2>
+		<form action="{{ route('rooms.uploadVideo', $room->id) }}" method="POST" enctype="multipart/form-data" class="mt-4">
+			@csrf
+			<label for="video-upload" class="block mb-2">Prześlij nowe wideo do pokoju:</label>
+			<input type="file" id="video-upload" name="video" class="border p-2 w-full">
+			<button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mt-2">Prześlij</button>
+		</form>
+	@else
+		<form action="{{ route('rooms.uploadVideo', $room->id) }}" method="POST" enctype="multipart/form-data" class="mt-4">
+			@csrf
+			<label for="video-upload" class="block mb-2">Prześlij wideo do pokoju:</label>
+			<input type="file" id="video-upload" name="video" class="border p-2 w-full">
+			<button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mt-2">Prześlij</button>
+		</form>
+	</div>
+	@endif
 	<script>
 		document.addEventListener("DOMContentLoaded", function () {
 			window.Echo.channel("chat-room.{{ $room->id }}")

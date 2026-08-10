@@ -16,6 +16,12 @@ use Illuminate\Support\Facades\View;
 use Illuminate\Support\Facades\URL;
 use App\Models\User;
 use App\Models\ChatRoomMessage;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Redis;
+use App\Events\VideoControll;
+use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\Log;
+use App\Events\test;
 
 Route::get('/', function () {
     return view('mainpage');
@@ -31,6 +37,7 @@ Route::post('/send-message', function (Request $request) {
         'sent_at' => $request->input('sent_at', now()->toDateTimeString()),
     ];
 
+     Log::info('Video control command received: ' . json_encode($messageData));
     // Broadcast the message to the chatroom channel
     broadcast(new MessageSent($messageData))->toOthers();
     $chatroomMessage = new ChatRoomMessage();
@@ -41,6 +48,17 @@ Route::post('/send-message', function (Request $request) {
 
     return response()->json(['status' => 'Message broadcasted!', 'success' => true]);
 })->name('rooms.sendMessage');
+
+Route::post('/video-control', function (Request $request) {
+    $cmd = [
+        'cmd' => $request->input('cmd'),
+        'roomId' => $request->input('room_id'),
+    ];
+    $cmd['request_time'] = now()->toDateTimeString();
+    Log::info('Video control command received: ' . json_encode($cmd));
+    broadcast(new VideoControll($cmd))->toOthers();
+    return response()->json(['status' => 'Command broadcasted!', 'success' => true]);
+})->name('rooms.videoControl');
 
 Route::get('/messages', function () {
     return view('messages');
@@ -139,9 +157,75 @@ Route::post('rooms/store', function (\Illuminate\Http\Request $request) {
 Route::get('rooms/show/{room}', function (\App\Models\Room $room) {
     $users = $room->users()->get();
     $messages = $room->messages()->with('user')->orderBy('sent_at', 'asc')->get();
-    return view('rooms.show', compact('room', 'users', 'messages'));
+
+    $watchStatus = null;
+
+    if (Storage::disk('public')->exists($room->id)) {
+        $fileExists = true;
+        $watchStatus = Redis::get('room:' . $room->id . ':watch_status');
+    } else {
+        $fileExists = false;
+    }
+
+    return view('rooms.show', compact('room', 'users', 'messages', 'fileExists', 'watchStatus'));
 })->name('rooms.show');
 
+Route::post('rooms/uploadVideo/{room}', function (\Illuminate\Http\Request $request, \App\Models\Room $room) {
+    $user = auth()->user();
+    if ($room->owner_id !== $user->id) {
+        return redirect()->route('rooms.show', $room->id)->with('error', 'Nie masz uprawnień do przesyłania wideo do tego pokoju.');
+    }
+
+    $request->validate([
+        'video' => 'required|file|mimetypes:video/mp4', // 2GB limit
+    ]);
+
+    $videoFile = $request->file('video');
+
+    $path = Storage::disk('public')->putFileAs(
+        null,
+        $videoFile,
+        $room->id,
+    );
+
+    return redirect()->route('rooms.show', $room->id)->with('success', 'Wideo zostało przesłane pomyślnie!');
+})->name('rooms.uploadVideo');
+
+Route::get('rooms/watch/{room}', function (\App\Models\Room $room) {
+    $user = auth()->user();
+    $isOwner = $user &&$room->owner_id === $user->id;
+
+    $watchStatus = Redis::get('room:' . $room->id . ':watch_status');
+    if($watchStatus !== 'active') {
+        return redirect()->route('rooms.show', $room->id)->with('error', 'Transmisja jeszcze nie została rozpoczęta.');
+    }
+
+    return view('rooms.watch', compact('room', 'isOwner', 'watchStatus'));
+})->name('rooms.watch');
+
+Route::get('rooms/startStream/{room}', function (\App\Models\Room $room) {
+    $user = auth()->user();
+    if ($room->owner_id !== $user->id) {
+        return redirect()->route('rooms.show', $room->id)->with('error', 'Nie masz uprawnień do rozpoczęcia transmisji w tym pokoju.');
+    }
+
+    // Set the watch status in Redis to true
+    Redis::set('room:' . $room->id . ':watch_status', "active");
+
+    return redirect()->route('rooms.show', $room->id)->with('success', 'Transmisja została rozpoczęta pomyślnie!');
+})->name('rooms.startStream');
+
+Route::get('rooms/stopStream/{room}', function (\App\Models\Room $room) {
+    $user = auth()->user();
+    if ($room->owner_id !== $user->id) {
+        return redirect()->route('rooms.show', $room->id)->with('error', 'Nie masz uprawnień do zakończenia transmisji w tym pokoju.');
+    }
+
+    // Set the watch status in Redis to false
+    Redis::set('room:' . $room->id . ':watch_status', false);
+
+    return redirect()->route('rooms.show', $room->id)->with('success', 'Transmisja została zakończona pomyślnie!');
+})->name('rooms.stopStream');
 
 Route::get('rooms/generate-invite-link/{room}', function (\App\Models\Room $room) {
     $user = auth()->user();
