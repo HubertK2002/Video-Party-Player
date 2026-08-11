@@ -2,6 +2,8 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Events\MessageSent;
+use App\Http\Controllers\Auth\EmailVerificationController;
+use App\Http\Controllers\Auth\PasswordResetController;
 use App\Models\Room;
 use App\Models\RoomInvitation;
 use App\Models\RoomUser;
@@ -66,7 +68,7 @@ Route::get('/messages', function () {
 
 Route::get('/register', function () {
     return view('auth.register');
-});
+})->name('register');
 
 Route::post('/register', function (\Illuminate\Http\Request $request) {
     // Validate the request data
@@ -76,23 +78,24 @@ Route::post('/register', function (\Illuminate\Http\Request $request) {
         'password' => 'required|string|min:8|confirmed',
     ]);
 
-    // Create the user
+    // Create the user — konto jest nieaktywne do czasu potwierdzenia kodem z maila
     $user = \App\Models\User::create([
         'name' => $validatedData['name'],
         'email' => $validatedData['email'],
         'password' => bcrypt($validatedData['password']),
     ]);
 
-    // Log the user in
-    auth()->login($user);
+    $user->sendEmailVerificationCode();
 
-    // Redirect to a desired page after registration
-    return redirect('/')->with('success', 'Konto utworzone pomyślnie!');
+    $request->session()->put(EmailVerificationController::SESSION_KEY, $user->id);
+
+    return redirect()->route('verification.notice')
+        ->with('success', 'Wysłaliśmy kod weryfikacyjny na ' . $user->email . '.');
 });
 
 Route::get('/login', function () {
     return view('auth.login');
-});
+})->name('login');
 
 Route::post('/login', function (\Illuminate\Http\Request $request) {
     // Validate the request data
@@ -103,7 +106,22 @@ Route::post('/login', function (\Illuminate\Http\Request $request) {
 
     // Attempt to log the user in
     if (auth()->attempt($credentials)) {
+        $user = auth()->user();
+
+        // Konto bez potwierdzonego maila wraca na ekran z kodem
+        if (! $user->hasVerifiedEmail()) {
+            auth()->logout();
+            $request->session()->regenerate();
+            $request->session()->put(EmailVerificationController::SESSION_KEY, $user->id);
+            $user->sendEmailVerificationCode();
+
+            return redirect()->route('verification.notice')
+                ->with('info', 'Najpierw potwierdź swój email — wysłaliśmy nowy kod na ' . $user->email . '.');
+        }
+
         // Authentication passed...
+        $request->session()->regenerate();
+
         return redirect('/')->with('success', 'Zalogowano pomyślnie!');
     }
 
@@ -112,6 +130,15 @@ Route::post('/login', function (\Illuminate\Http\Request $request) {
         'email' => 'Wprowadzone dane logowania są nieprawidłowe.',
     ]);
 });
+
+Route::get('/verify-email', [EmailVerificationController::class, 'show'])->name('verification.notice');
+Route::post('/verify-email', [EmailVerificationController::class, 'verify'])->name('verification.verify');
+Route::post('/verify-email/resend', [EmailVerificationController::class, 'resend'])->name('verification.resend');
+
+Route::get('/forgot-password', [PasswordResetController::class, 'request'])->name('password.request');
+Route::post('/forgot-password', [PasswordResetController::class, 'sendLink'])->name('password.email');
+Route::get('/reset-password/{token}', [PasswordResetController::class, 'reset'])->name('password.reset');
+Route::post('/reset-password', [PasswordResetController::class, 'update'])->name('password.update');
 
 Route::get('/logout', function () {
     auth()->logout();

@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 
 class Register extends Controller
@@ -26,10 +25,12 @@ class Register extends Controller
             'password' => Hash::make($validated['password']),
         ]);
 
-        // Log them in
-        Auth::login($user);
+        // Konto czeka na potwierdzenie kodem wysłanym mailem
+        $user->sendEmailVerificationCode();
 
-        // Redirect to home
-        return redirect('/')->with('success', 'Zalogowano!');
+        $request->session()->put(EmailVerificationController::SESSION_KEY, $user->id);
+
+        return redirect()->route('verification.notice')
+            ->with('success', 'Wysłaliśmy kod weryfikacyjny na '.$user->email.'.');
     }
 }
