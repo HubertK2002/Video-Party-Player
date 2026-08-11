@@ -1,25 +1,43 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Reverb Broadcast - Rooms</title>
-	@vite(['resources/js/app.js']) {{-- Load JS --}}
-	</head>
-<body>
-	<h1 class="text-3xl font-bold mb-4">Dostępne pokoje</h1>
-	<ul class="list-disc pl-5">
-		@foreach ($ownedRooms as $room)
-			<li class="mb-2">
-				<a class="text-blue-500 hover:underline" href="{{ route('rooms.show', $room->id) }}">{{ $room->name }}</a>
-				@if ($room->is_public)
-					<span class="text-green-500">Publiczny</span>
-				@else
-					<span class="text-red-500">Prywatny</span>
-				@endif
-				<span>Właściciel: {{ $room->owner->name }} (ID: {{ $room->owner->id }})</span>
-			</li>
-		@endforeach
-	</ul>
-	<a href="{{ route('rooms.create') }}" class="btn btn-primary mt-4">Utwórz nowy pokój</a><br>
-</body>
+@extends('layouts.app')
+
+@section('title', 'Moje pokoje — Reverb Broadcast')
+
+@section('content')
+<div class="mx-auto w-full max-w-6xl">
+
+	<div class="mb-8 flex flex-wrap items-end justify-between gap-4">
+		<div>
+			<h1 class="page-title">Moje pokoje</h1>
+			<p class="mt-1.5 text-sm text-mist-300">Pokoje, których jesteś właścicielem.</p>
+		</div>
+
+		<div class="flex flex-wrap items-center gap-2">
+			<a href="{{ route('rooms.index') }}" class="btn btn-secondary btn-sm">Wszystkie pokoje</a>
+			<a href="{{ route('rooms.create') }}" class="btn btn-primary btn-sm">
+				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+				Nowy pokój
+			</a>
+		</div>
+	</div>
+
+	@if ($ownedRooms->isEmpty())
+		<div class="empty-state">
+			<span class="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-mist-500">
+				<svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+			</span>
+			<div>
+				<h2 class="section-title">Nie masz jeszcze własnego pokoju</h2>
+				<p class="muted mt-1">Stwórz pierwszy i zaproś znajomych na seans.</p>
+			</div>
+			<a href="{{ route('rooms.create') }}" class="btn btn-primary btn-sm mt-2">Stwórz pokój</a>
+		</div>
+	@else
+		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+			@foreach ($ownedRooms as $room)
+				@include('partials.room-card', ['room' => $room])
+			@endforeach
+		</div>
+	@endif
+
+</div>
+@endsection
