@@ -109,18 +109,38 @@
 						<div class="flex flex-wrap items-center justify-between gap-3">
 							<div>
 								<h3 class="section-title">{{ $fileExists ? 'Zmień film' : 'Prześlij film' }}</h3>
-								<p class="muted mt-0.5">Obsługiwany format: MP4.</p>
+								<p class="muted mt-0.5">Format MP4. Duże pliki lecą w kawałkach, więc możesz spokojnie wrzucić cały film.</p>
 							</div>
 							@if ($isLive)
 								<a href="{{ route('rooms.stopStream', $room->id) }}" class="btn btn-danger btn-sm">Zakończ transmisję</a>
 							@endif
 						</div>
 
-						<form action="{{ route('rooms.uploadVideo', $room->id) }}" method="POST" enctype="multipart/form-data" class="mt-4 flex flex-col gap-3 sm:flex-row">
+						<form id="upload-form"
+						      action="{{ route('rooms.uploadVideo', $room->id) }}"
+						      method="POST"
+						      enctype="multipart/form-data"
+						      class="mt-4 flex flex-col gap-3 sm:flex-row">
 							@csrf
-							<input type="file" id="video-upload" name="video" accept="video/mp4" class="input-file sm:flex-1">
-							<button type="submit" class="btn btn-secondary shrink-0">Prześlij</button>
+							<input type="file" id="video-upload" name="video" accept="video/mp4,.mp4" class="input-file sm:flex-1">
+							<button type="submit" id="upload-submit" class="btn btn-secondary shrink-0">Prześlij</button>
 						</form>
+
+						<div id="upload-progress" class="mt-4 hidden">
+							<div class="mb-2 flex items-baseline justify-between gap-3 text-sm">
+								<span id="upload-status" class="text-mist-300">Przesyłanie…</span>
+								<span id="upload-percent" class="font-mono text-xs text-brand-300">0%</span>
+							</div>
+							<div class="h-2 w-full overflow-hidden rounded-full bg-ink-700">
+								<div id="upload-bar" class="h-full w-0 rounded-full bg-gradient-to-r from-brand-500 to-flare-500 transition-[width] duration-200"></div>
+							</div>
+							<div class="mt-2 flex items-center justify-between gap-3">
+								<span id="upload-detail" class="muted"></span>
+								<button type="button" id="upload-cancel" class="btn btn-ghost btn-sm">Anuluj</button>
+							</div>
+						</div>
+
+						<div id="upload-error" class="alert alert-error mt-4 hidden"></div>
 					</div>
 				@endif
 			</div>
@@ -161,7 +181,7 @@
 							<div class="min-w-0">
 								<div class="chat-meta">
 									<span class="chat-author">{{ $message->user->name }}</span>
-									<span class="chat-time">{{ \Illuminate\Support\Carbon::parse($message->sent_at ?? $message->created_at)->format('H:i') }}</span>
+									<span class="chat-time" data-time="{{ \Illuminate\Support\Carbon::parse($message->sent_at ?? $message->created_at, 'UTC')->toIso8601String() }}">{{ \Illuminate\Support\Carbon::parse($message->sent_at ?? $message->created_at, 'UTC')->format('H:i') }}</span>
 								</div>
 								<div class="chat-bubble">{{ $message->message }}</div>
 							</div>
@@ -203,12 +223,23 @@
 		const chatMessages = document.getElementById("chat-messages");
 
 		function formatTime(value) {
-			const date = new Date((value || "").replace(" ", "T"));
+			let raw = (value || "").trim().replace(" ", "T");
+			if (raw && !/(Z|[+-]\d{2}:?\d{2})$/.test(raw)) {
+				raw += "Z";
+			}
+			const date = new Date(raw);
 			if (isNaN(date)) {
 				return "";
 			}
 			return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 		}
+
+		chatMessages.querySelectorAll(".chat-time[data-time]").forEach((element) => {
+			const formatted = formatTime(element.dataset.time);
+			if (formatted) {
+				element.textContent = formatted;
+			}
+		});
 
 		function appendMessage(name, text, sentAt) {
 			const empty = document.getElementById("chat-empty");
@@ -271,12 +302,19 @@
 
 			sendButton.disabled = true;
 
+			const socketId = window.Echo.socketId();
+			const headers = {
+				"Content-Type": "application/json",
+				"X-CSRF-TOKEN": "{{ csrf_token() }}"
+			};
+
+			if (socketId) {
+				headers["X-Socket-Id"] = socketId;
+			}
+
 			fetch("{{ route('rooms.sendMessage', $room->id) }}", {
 				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"X-CSRF-TOKEN": "{{ csrf_token() }}"
-				},
+				headers: headers,
 				body: JSON.stringify({ message: message, room_id: {{ $room->id }} })
 			})
 			.then(response => response.json())
@@ -284,7 +322,9 @@
 				if (data.success) {
 					messageInput.value = "";
 					// nadawca nie dostaje własnego broadcastu (toOthers) — dorysuj lokalnie
-					appendMessage(@json(auth()->user()->name ?? ''), message, new Date().toISOString());
+					if (socketId) {
+						appendMessage(@json(auth()->user()->name ?? ''), message, new Date().toISOString());
+					}
 				} else {
 					alert("Błąd podczas wysyłania wiadomości: " + (data.error || ""));
 				}
@@ -301,4 +341,205 @@
 		@endauth
 	});
 </script>
+
+@if ($isOwner)
+<script>
+	document.addEventListener("DOMContentLoaded", function () {
+		const form = document.getElementById("upload-form");
+		const input = document.getElementById("video-upload");
+		const submitButton = document.getElementById("upload-submit");
+		const panel = document.getElementById("upload-progress");
+		const bar = document.getElementById("upload-bar");
+		const percent = document.getElementById("upload-percent");
+		const status = document.getElementById("upload-status");
+		const detail = document.getElementById("upload-detail");
+		const cancelButton = document.getElementById("upload-cancel");
+		const errorBox = document.getElementById("upload-error");
+
+		const CHUNK_SIZE = 1024 * 1024;
+		const TOKEN = "{{ csrf_token() }}";
+		const URLS = {
+			init: "{{ route('rooms.uploadInit', $room->id) }}",
+			chunk: "{{ route('rooms.uploadChunk', $room->id) }}",
+			finish: "{{ route('rooms.uploadFinish', $room->id) }}"
+		};
+
+		let controller = null;
+		let cancelled = false;
+		let running = false;
+
+		function formatBytes(bytes) {
+			const units = ["B", "KB", "MB", "GB"];
+			let value = bytes;
+			let unit = 0;
+			while (value >= 1024 && unit < units.length - 1) {
+				value /= 1024;
+				unit++;
+			}
+			return (unit === 0 ? value : value.toFixed(1)) + " " + units[unit];
+		}
+
+		function showError(message) {
+			errorBox.textContent = message;
+			errorBox.classList.remove("hidden");
+		}
+
+		function post(url, body) {
+			controller = new AbortController();
+
+			return fetch(url, {
+				method: "POST",
+				headers: { "X-CSRF-TOKEN": TOKEN, "Accept": "application/json" },
+				body: body,
+				signal: controller.signal
+			}).then(function (response) {
+				return response.json().catch(function () { return {}; }).then(function (data) {
+					if (!response.ok || !data.success) {
+						const error = new Error(data.error || data.message || "Serwer odpowiedział " + response.status);
+						error.status = response.status;
+						error.data = data;
+						throw error;
+					}
+					return data;
+				});
+			});
+		}
+
+		async function sendChunks(file, uploadId, total) {
+			const started = Date.now();
+			let index = 0;
+
+			while (index < total) {
+				if (cancelled) {
+					throw new Error("Przesyłanie anulowane.");
+				}
+
+				const body = new FormData();
+				body.append("upload_id", uploadId);
+				body.append("index", index);
+				body.append("chunk", file.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE), "chunk");
+
+				let attempt = 0;
+				let resynced = false;
+
+				while (true) {
+					try {
+						await post(URLS.chunk, body);
+						break;
+					} catch (error) {
+						if (cancelled) {
+							throw error;
+						}
+
+						if (error.status === 409 && typeof error.data?.expected === "number") {
+							index = error.data.expected;
+							resynced = true;
+							break;
+						}
+
+						attempt++;
+						if (attempt >= 3 || (error.status >= 400 && error.status < 500)) {
+							throw error;
+						}
+
+						await new Promise(function (resolve) { setTimeout(resolve, 500 * attempt); });
+					}
+				}
+
+				if (resynced) {
+					continue;
+				}
+
+				index++;
+
+				const sent = Math.min(index * CHUNK_SIZE, file.size);
+				const ratio = Math.round((index / total) * 100);
+				const seconds = (Date.now() - started) / 1000;
+				const speed = seconds > 0 ? sent / seconds : 0;
+
+				bar.style.width = ratio + "%";
+				percent.textContent = ratio + "%";
+				detail.textContent = formatBytes(sent) + " z " + formatBytes(file.size)
+					+ (speed > 0 ? " · " + formatBytes(speed) + "/s" : "");
+			}
+		}
+
+		async function upload(file) {
+			cancelled = false;
+			running = true;
+			errorBox.classList.add("hidden");
+			panel.classList.remove("hidden");
+			bar.style.width = "0%";
+			percent.textContent = "0%";
+			detail.textContent = "";
+			submitButton.disabled = true;
+			input.disabled = true;
+
+			const total = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+
+			try {
+				status.textContent = "Przygotowuję transfer…";
+
+				const init = new FormData();
+				init.append("size", file.size);
+				init.append("chunks", total);
+				const started = await post(URLS.init, init);
+
+				status.textContent = "Przesyłam film…";
+				await sendChunks(file, started.upload_id, total);
+
+				status.textContent = "Składam plik na serwerze…";
+				const finish = new FormData();
+				finish.append("upload_id", started.upload_id);
+				const done = await post(URLS.finish, finish);
+
+				status.textContent = "Gotowe!";
+				running = false;
+				window.location.href = done.redirect;
+			} catch (error) {
+				running = false;
+				panel.classList.add("hidden");
+				submitButton.disabled = false;
+				input.disabled = false;
+
+				if (cancelled || error.name === "AbortError") {
+					showError("Przesyłanie anulowane.");
+				} else {
+					console.error("Upload:", error);
+					showError("Nie udało się przesłać filmu: " + error.message);
+				}
+			}
+		}
+
+		form.addEventListener("submit", function (event) {
+			event.preventDefault();
+
+			if (running) {
+				return;
+			}
+
+			if (!input.files || input.files.length === 0) {
+				showError("Najpierw wybierz plik MP4.");
+				return;
+			}
+
+			upload(input.files[0]);
+		});
+
+		cancelButton.addEventListener("click", function () {
+			cancelled = true;
+			if (controller) {
+				controller.abort();
+			}
+		});
+
+		window.addEventListener("beforeunload", function (event) {
+			if (running) {
+				event.preventDefault();
+				event.returnValue = "";
+			}
+		});
+	});
+</script>
+@endif
 @endpush

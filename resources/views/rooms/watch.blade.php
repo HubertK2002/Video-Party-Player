@@ -57,7 +57,7 @@
 				<div class="w-full max-w-5xl">
 					<div class="overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl shadow-black/70">
 						<video controls id="video-player" class="block aspect-video w-full bg-black" playsinline>
-							<source src="{{ Storage::disk('public')->url($room->id) }}" type="video/mp4">
+							<source src="{{ route('rooms.video', $room->id) }}" type="video/mp4">
 							Twoja przeglądarka nie obsługuje odtwarzania wideo.
 						</video>
 					</div>
@@ -107,12 +107,19 @@
 		    }
 
 		    function sendVideoCommand(cmd) {
+		        const socketId = window.Echo.socketId();
+		        const headers = {
+		            "Content-Type": "application/json",
+		            "X-CSRF-TOKEN": "{{ csrf_token() }}",
+		        };
+
+		        if (socketId) {
+		            headers["X-Socket-Id"] = socketId;
+		        }
+
 		        fetch("{{ route('rooms.videoControl') }}", {
 		            method: "POST",
-		            headers: {
-		                "Content-Type": "application/json",
-		                "X-CSRF-TOKEN": "{{ csrf_token() }}",
-		            },
+		            headers: headers,
 		            body: JSON.stringify({
 		                cmd: cmd,
 		                room_id: {{ $room->id }}
@@ -140,15 +147,17 @@
 	    window.Echo.channel("room.{{ $room->id }}")
 	        .listen(".video.control", (event) => {
 	            const videoPlayer = document.getElementById("video-player");
-
+				console.log("Received video control event:", event);
 	            if (!videoPlayer) {
 	                return;
 	            }
 
-	            if (event.cmd.action === "play") {
+	            const action = event?.cmd?.cmd?.action ?? event?.cmd?.action;
+
+	            if (action === "play") {
 	                videoPlayer.play();
 	            }
-	            else if (event.cmd.action === "pause") {
+	            else if (action === "pause") {
 	                videoPlayer.pause();
 	            }
 	        });
