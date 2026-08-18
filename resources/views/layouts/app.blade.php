@@ -5,7 +5,9 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<meta name="csrf-token" content="{{ csrf_token() }}">
 	<title>@yield('title', 'Reverb Broadcast')</title>
-	<link rel="icon" href="/favicon.ico">
+	<link rel="icon" href="/favicon.ico" sizes="any">
+	<link rel="icon" href="/icon.png" type="image/png" sizes="512x512">
+	<link rel="apple-touch-icon" href="/icon.png">
 	@vite(['resources/css/app.css', 'resources/js/app.js'])
 	@stack('head')
 </head>

@@ -2,12 +2,7 @@
 	<nav class="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 sm:px-6 lg:px-8">
 
 		<a href="{{ route('home') }}" class="group flex items-center gap-2.5">
-			<span class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-flare-500 shadow-lg shadow-brand-600/30 transition group-hover:scale-105">
-				<svg class="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<path d="m10 8 6 4-6 4V8Z" fill="currentColor" stroke="none"/>
-					<rect x="2" y="4" width="20" height="16" rx="3"/>
-				</svg>
-			</span>
+			<img src="/icon.png" alt="" class="h-9 w-9 rounded-xl shadow-lg shadow-black/40 transition group-hover:scale-105">
 			<span class="hidden text-base font-semibold tracking-tight sm:block">
 				Reverb <span class="gradient-text">Broadcast</span>
 			</span>
