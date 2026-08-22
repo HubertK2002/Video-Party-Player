@@ -95,6 +95,27 @@
 		content.classList.remove("hidden");
 		content.classList.add("flex");
 	});
+
+	function sendVideoCommand(cmd) {
+        const socketId = window.Echo.socketId();
+        const headers = {
+            "Content-Type": "application/json",
+            "X-CSRF-TOKEN": "{{ csrf_token() }}",
+        };
+
+        if (socketId) {
+            headers["X-Socket-Id"] = socketId;
+        }
+
+        fetch("{{ route('rooms.videoControl') }}", {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify({
+                cmd: cmd,
+                room_id: {{ $room->id }}
+            })
+        });
+    }
 </script>
 
 @if($isOwner)
@@ -104,27 +125,6 @@
 
 		    if (!videoPlayer) {
 		        return;
-		    }
-
-		    function sendVideoCommand(cmd) {
-		        const socketId = window.Echo.socketId();
-		        const headers = {
-		            "Content-Type": "application/json",
-		            "X-CSRF-TOKEN": "{{ csrf_token() }}",
-		        };
-
-		        if (socketId) {
-		            headers["X-Socket-Id"] = socketId;
-		        }
-
-		        fetch("{{ route('rooms.videoControl') }}", {
-		            method: "POST",
-		            headers: headers,
-		            body: JSON.stringify({
-		                cmd: cmd,
-		                room_id: {{ $room->id }}
-		            })
-		        });
 		    }
 
 		    videoPlayer.addEventListener("play", () => {
@@ -145,12 +145,30 @@
 					time: videoPlayer.currentTime
 				});
 			});
+
+			window.Echo.channel("room.{{ $room->id }}")
+				.listen(".video.control", (event) => {
+					if (event?.cmd?.cmd.action === "ask-sync") {
+						console.log("Received ask-sync event Admin:", event);
+						sendVideoCommand({
+							action: "sync",
+							time: videoPlayer.currentTime,
+							paused: videoPlayer.paused,
+							'socket_to': event?.cmd?.socket_to
+						});
+					}
+				});
 		});
 	</script>
 @endif
 
 <script>
 	document.addEventListener("DOMContentLoaded", function () {
+		sendVideoCommand({
+			action: "ask-sync",
+			'socket_id': window.Echo.socketId()
+		});
+
 	    window.Echo.channel("room.{{ $room->id }}")
 	        .listen(".video.control", (event) => {
 	            const videoPlayer = document.getElementById("video-player");
@@ -171,6 +189,23 @@
 					const time = event?.cmd?.cmd?.time ?? event?.cmd?.time;
 					if (typeof time === "number") {
 						videoPlayer.currentTime = time;
+					}
+				} else if (action === "sync") {
+					const time = event?.cmd?.cmd?.time ?? event?.cmd?.time;
+					const paused = event?.cmd?.cmd?.paused ?? event?.cmd?.paused;
+					const socketTo = event?.cmd?.cmd?.socket_to ?? event?.cmd?.socket_to;
+					if(socketTo && socketTo !== window.Echo.socketId()) {
+						return;
+					}
+					if (typeof time === "number") {
+						videoPlayer.currentTime = time;
+					}
+					if (typeof paused === "boolean") {
+						if (paused) {
+							videoPlayer.pause();
+						} else {
+							videoPlayer.play();
+						}
 					}
 				}
 	        });
