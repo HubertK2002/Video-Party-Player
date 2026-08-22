@@ -138,6 +138,13 @@
 		            action: "pause"
 		        });
 		    });
+
+			videoPlayer.addEventListener("seeked", () => {
+				sendVideoCommand({
+					action: "seek",
+					time: videoPlayer.currentTime
+				});
+			});
 		});
 	</script>
 @endif
@@ -160,6 +167,12 @@
 	            else if (action === "pause") {
 	                videoPlayer.pause();
 	            }
+				else if (action === "seek") {
+					const time = event?.cmd?.cmd?.time ?? event?.cmd?.time;
+					if (typeof time === "number") {
+						videoPlayer.currentTime = time;
+					}
+				}
 	        });
 	});
 </script>
